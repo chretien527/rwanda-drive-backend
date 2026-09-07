@@ -97,7 +97,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			if origin != "" {
 				allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
 				if allowedOrigins == "" {
-					allowedOrigins = "http://localhost:3000"
+					allowedOrigins = "http://localhost:3000,https://docproof2.vercel.app"
 				}
 
 				allowed := false
@@ -131,7 +131,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			// Get configured origins
 			allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
 			if allowedOrigins == "" {
-				allowedOrigins = "http://localhost:3000"
+				allowedOrigins = "http://localhost:3000,https://docproof2.vercel.app"
 			}
 			
 			// Check exact matches
