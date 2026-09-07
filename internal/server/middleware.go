@@ -95,11 +95,27 @@ func corsMiddleware(next http.Handler) http.Handler {
 		// Handle preflight immediately
 		if r.Method == http.MethodOptions {
 			if origin != "" {
-				// In development, allow all localhost origins
+				allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
+				if allowedOrigins == "" {
+					allowedOrigins = "http://localhost:3000"
+				}
+
+				allowed := false
+				for _, allowedOrigin := range strings.Split(allowedOrigins, ",") {
+					if strings.TrimSpace(allowedOrigin) == origin {
+						allowed = true
+						break
+					}
+				}
+
+				// In development, allow any localhost or 127.0.0.1 origin.
 				env := os.Getenv("ENVIRONMENT")
 				isDevelopment := env == "" || env == "development"
-				
-				if isDevelopment && (strings.Contains(origin, "localhost") || strings.Contains(origin, "127.0.0.1")) {
+				if !allowed && isDevelopment && (strings.Contains(origin, "localhost") || strings.Contains(origin, "127.0.0.1")) {
+					allowed = true
+				}
+
+				if allowed {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
 					w.Header().Set("Access-Control-Allow-Credentials", "true")
 				}
