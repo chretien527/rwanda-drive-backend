@@ -48,12 +48,10 @@ func (h *AuthHandler) HandleResendVerification(w http.ResponseWriter, r *http.Re
 	user, err := h.service.GetUserByID(r.Context(), userID)
 	if err != nil { writeError(w, http.StatusNotFound, "user not found", "AUTH_USER_NOT_FOUND"); return }
 	if user.EmailVerified { writeError(w, http.StatusConflict, "email already verified", "AUTH_EMAIL_ALREADY_VERIFIED"); return }
-	token, err := h.service.ResendEmailVerification(r.Context(), userID)
-	if err != nil {
+	if _, err := h.service.ResendEmailVerification(r.Context(), userID); err != nil {
 		code := "INTERNAL_ERROR"; if e, ok := err.(Error); ok { code = e.Code }
 		writeError(w, http.StatusTooManyRequests, err.Error(), code); return
 	}
-	h.logger.WithFields(map[string]interface{}{"user_id": userID, "email": user.Email, "token": token}).Info("EMAIL_VERIFICATION_TOKEN (mock email - resend)")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "verification email sent"})
 }

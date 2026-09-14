@@ -57,10 +57,9 @@ func (s *Service) GenerateEmailVerification(ctx context.Context, userID string) 
 	}
 
 	// Send verification email with OTP
-	err = s.emailService.SendVerificationOTP(user.Email, otp)
-	if err != nil {
+	if err = s.emailService.SendVerificationOTP(user.Email, otp); err != nil {
 		s.logger.WithError(err).Error("Failed to send verification email")
-		// Don't return error - OTP is still valid even if email fails
+		return "", ErrInternal
 	}
 
 	s.logger.WithField("user_id", userID).Info("Email verification OTP generated and sent")

@@ -26,9 +26,6 @@ WORKDIR /root/
 # Copy pre-built binary from builder stage
 COPY --from=builder /app/bin/api .
 
-# Copy .env.example as template (in production, use proper secrets management)
-COPY .env.example .env
-
 # Expose port
 EXPOSE 8080
 

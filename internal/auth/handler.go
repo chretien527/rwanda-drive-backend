@@ -191,11 +191,8 @@ func (h *AuthHandler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create account", code)
 		return
 	}
-	verificationToken, _ := h.service.GenerateEmailVerification(r.Context(), user.ID)
-	if verificationToken != "" {
-		h.logger.WithFields(map[string]interface{}{
-			"user_id": user.ID, "email": user.Email, "token": verificationToken,
-		}).Info("EMAIL_VERIFICATION_TOKEN (mock email)")
+	if _, err = h.service.GenerateEmailVerification(r.Context(), user.ID); err != nil {
+		h.logger.WithError(err).WithField("user_id", user.ID).Error("Failed to send verification email after registration")
 	}
 	h.logger.WithField("user_id", user.ID).Info("User registered")
 	w.Header().Set("Content-Type", "application/json")
