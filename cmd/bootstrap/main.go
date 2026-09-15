@@ -6,9 +6,6 @@ import (
 	"os"
     "fmt"
     "time"
-    "go.mongodb.org/mongo-driver/mongo"
-    "go.mongodb.org/mongo-driver/mongo/options"
-
 	"github.com/0xEmmyb2/CipherPass/internal/auth"
 	"github.com/0xEmmyb2/CipherPass/internal/config"
 	"github.com/0xEmmyb2/CipherPass/pkg/database"

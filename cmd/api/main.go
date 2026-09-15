@@ -8,9 +8,6 @@ import (
 	"os"
 	"os/signal"
     "time"
-    "go.mongodb.org/mongo-driver/mongo"
-    "go.mongodb.org/mongo-driver/mongo/options"
-
 	"github.com/0xEmmyb2/CipherPass/internal/auth"
 	"github.com/0xEmmyb2/CipherPass/internal/chain"
 	"github.com/0xEmmyb2/CipherPass/internal/config"
