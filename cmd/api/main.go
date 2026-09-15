@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"time"
+    "time"
+    "go.mongodb.org/mongo-driver/mongo"
+    "go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/0xEmmyb2/CipherPass/internal/auth"
 	"github.com/0xEmmyb2/CipherPass/internal/chain"
