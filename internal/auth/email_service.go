@@ -1,12 +1,16 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"mime"
 	"net"
+	"net/http"
 	"net/smtp"
 	"os"
 	"strings"
@@ -27,6 +31,7 @@ type EmailService struct {
 	smtpPassword string
 	fromEmail    string
 	fromName     string
+	resendAPIKey string
 	logger       *config.Logger
 }
 
@@ -61,20 +66,23 @@ func NewEmailService(logger *config.Logger) *EmailService {
 		smtpPassword: smtpPassword,
 		fromEmail:    fromEmail,
 		fromName:     getEnvOrDefault("SMTP_FROM_NAME", "Rwanda Drive"),
+		resendAPIKey: strings.TrimSpace(getEnvOrDefault("RESEND_API_KEY", "")),
 		logger:       logger,
 	}
 
-	if svc.IsConfigured() {
-		logger.Infof("Email service configured: host=%s port=%s user=%s from=%s", smtpHost, smtpPort, smtpUsername, fromEmail)
+	if svc.resendAPIKey != "" {
+		logger.Infof("Email service configured via Resend API (from=%s)", fromEmail)
+	} else if svc.smtpUsername != "" && svc.smtpPassword != "" {
+		logger.Infof("Email service configured via SMTP: host=%s port=%s user=%s from=%s", smtpHost, smtpPort, smtpUsername, fromEmail)
 	} else {
-		logger.Warn("Email service NOT configured (SMTP_USERNAME/SMTP_PASSWORD missing) - OTPs will only be printed to logs")
+		logger.Warn("Email service NOT configured (SMTP or RESEND_API_KEY missing) - OTPs will only be printed to logs")
 	}
 	return svc
 }
 
 // IsConfigured checks if email service is properly configured
 func (e *EmailService) IsConfigured() bool {
-	return e.smtpUsername != "" && e.smtpPassword != ""
+	return e.resendAPIKey != "" || (e.smtpUsername != "" && e.smtpPassword != "")
 }
 
 // SendVerificationOTP sends a 6-digit OTP for email verification
@@ -202,11 +210,17 @@ func (e *EmailService) SendPasswordResetOTP(toEmail, otp string) error {
 // sendEmail sends an email using SMTP.
 // Port 465 uses implicit TLS; any other port (typically 587) uses STARTTLS.
 func (e *EmailService) sendEmail(to, subject, htmlBody string) error {
-	from := fmt.Sprintf("%s <%s>", mime.QEncoding.Encode("UTF-8", e.fromName), e.fromEmail)
-	msg := e.buildEmailMessage(from, to, subject, htmlBody)
+	var err error
+	if e.resendAPIKey != "" {
+		err = e.deliverViaResend(to, subject, htmlBody)
+	} else {
+		from := fmt.Sprintf("%s <%s>", mime.QEncoding.Encode("UTF-8", e.fromName), e.fromEmail)
+		msg := e.buildEmailMessage(from, to, subject, htmlBody)
+		err = e.deliver(to, []byte(msg))
+	}
 
-	if err := e.deliver(to, []byte(msg)); err != nil {
-		e.logger.WithError(err).Errorf("Failed to send email to %s via %s:%s", to, e.smtpHost, e.smtpPort)
+	if err != nil {
+		e.logger.WithError(err).Errorf("Failed to send email to %s", to)
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 
@@ -267,6 +281,41 @@ func (e *EmailService) deliver(to string, msg []byte) error {
 		return fmt.Errorf("finish body: %w", err)
 	}
 	return c.Quit()
+}
+
+// deliverViaResend sends an email using the Resend HTTP API.
+// Uses HTTPS (port 443) which is never blocked by cloud providers like Render.
+func (e *EmailService) deliverViaResend(to, subject, htmlBody string) error {
+	payload := map[string]interface{}{
+		"from":    fmt.Sprintf("%s <%s>", e.fromName, e.fromEmail),
+		"to":      []string{to},
+		"subject": subject,
+		"html":    htmlBody,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal resend payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create resend request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+e.resendAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("resend API call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("resend API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+	return nil
 }
 
 // buildEmailMessage constructs the email message with headers
