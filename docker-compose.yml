@@ -1,0 +1,14 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rwanda-drive-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    # env_file loads every key=value from .env directly as environment variables
+    # inside the container, so godotenv.Load() is not needed (and safely falls
+    # back to os.Getenv). SMTP_*, JWT_SECRET, MONGODB_URI etc. are all available.
