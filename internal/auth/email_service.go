@@ -1,22 +1,20 @@
 package auth
 
 import (
-	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"mime"
 	"net"
-	"net/http"
 	"net/smtp"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/0xEmmyb2/CipherPass/internal/config"
+	"github.com/0xEmmyb2/CipherPass/pkg/email"
 )
 
 // smtpTimeout bounds the whole SMTP exchange so a blocked port or slow server
@@ -31,7 +29,7 @@ type EmailService struct {
 	smtpPassword string
 	fromEmail    string
 	fromName     string
-	resendAPIKey string
+	resendClient *email.ResendClient
 	logger       *config.Logger
 }
 
@@ -59,18 +57,24 @@ func NewEmailService(logger *config.Logger) *EmailService {
 		fromEmail = smtpUsername
 	}
 
+	resendAPIKey := strings.TrimSpace(getEnvOrDefault("RESEND_API_KEY", ""))
+	fromName := getEnvOrDefault("SMTP_FROM_NAME", "Rwanda Drive")
+
 	svc := &EmailService{
 		smtpHost:     smtpHost,
 		smtpPort:     smtpPort,
 		smtpUsername: smtpUsername,
 		smtpPassword: smtpPassword,
 		fromEmail:    fromEmail,
-		fromName:     getEnvOrDefault("SMTP_FROM_NAME", "Rwanda Drive"),
-		resendAPIKey: strings.TrimSpace(getEnvOrDefault("RESEND_API_KEY", "")),
+		fromName:     fromName,
 		logger:       logger,
 	}
 
-	if svc.resendAPIKey != "" {
+	if resendAPIKey != "" {
+		svc.resendClient = email.NewResendClient(
+			resendAPIKey,
+			fmt.Sprintf("%s <%s>", fromName, fromEmail),
+		)
 		logger.Infof("Email service configured via Resend API (from=%s)", fromEmail)
 	} else if svc.smtpUsername != "" && svc.smtpPassword != "" {
 		logger.Infof("Email service configured via SMTP: host=%s port=%s user=%s from=%s", smtpHost, smtpPort, smtpUsername, fromEmail)
@@ -82,7 +86,7 @@ func NewEmailService(logger *config.Logger) *EmailService {
 
 // IsConfigured checks if email service is properly configured
 func (e *EmailService) IsConfigured() bool {
-	return e.resendAPIKey != "" || (e.smtpUsername != "" && e.smtpPassword != "")
+	return e.resendClient != nil || (e.smtpUsername != "" && e.smtpPassword != "")
 }
 
 // SendVerificationOTP sends a 6-digit OTP for email verification
@@ -207,12 +211,12 @@ func (e *EmailService) SendPasswordResetOTP(toEmail, otp string) error {
 	return e.sendEmail(toEmail, subject, body)
 }
 
-// sendEmail sends an email using SMTP.
+// sendEmail delivers an email via Resend (preferred) or SMTP fallback.
 // Port 465 uses implicit TLS; any other port (typically 587) uses STARTTLS.
 func (e *EmailService) sendEmail(to, subject, htmlBody string) error {
 	var err error
-	if e.resendAPIKey != "" {
-		err = e.deliverViaResend(to, subject, htmlBody)
+	if e.resendClient != nil {
+		err = e.resendClient.Send(context.Background(), to, subject, htmlBody)
 	} else {
 		from := fmt.Sprintf("%s <%s>", mime.QEncoding.Encode("UTF-8", e.fromName), e.fromEmail)
 		msg := e.buildEmailMessage(from, to, subject, htmlBody)
@@ -283,40 +287,7 @@ func (e *EmailService) deliver(to string, msg []byte) error {
 	return c.Quit()
 }
 
-// deliverViaResend sends an email using the Resend HTTP API.
-// Uses HTTPS (port 443) which is never blocked by cloud providers like Render.
-func (e *EmailService) deliverViaResend(to, subject, htmlBody string) error {
-	payload := map[string]interface{}{
-		"from":    fmt.Sprintf("%s <%s>", e.fromName, e.fromEmail),
-		"to":      []string{to},
-		"subject": subject,
-		"html":    htmlBody,
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal resend payload: %w", err)
-	}
 
-	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create resend request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+e.resendAPIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("resend API call: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("resend API error (status %d): %s", resp.StatusCode, string(respBody))
-	}
-	return nil
-}
 
 // buildEmailMessage constructs the email message with headers
 func (e *EmailService) buildEmailMessage(from, to, subject, htmlBody string) string {
